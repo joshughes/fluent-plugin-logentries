@@ -3,8 +3,8 @@ lib = File.expand_path('../lib', __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |spec|
-  spec.name          = "fluent-plugin-logentries2"
-  spec.version       = "0.1.0"
+  spec.name          = "fluent-plugin-logentries"
+  spec.version       = "0.2.11"
   spec.authors       = ["Joe Hughes"]
   spec.email         = ["dev@joehughes.info"]
   spec.summary       = "Logentries output plugin for Fluent event collector"
