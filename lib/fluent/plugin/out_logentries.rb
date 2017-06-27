@@ -127,7 +127,9 @@ class Fluent::LogentriesOutput < Fluent::BufferedOutput
   def send_logentries(token, data)
     retries = 0
     begin
+      log.info "Writing data to logentries socket!!!!"
       client.write("#{token} #{data} \n")
+      log.info "Wrote data to logentries socket!!!!"
     rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, Errno::EPIPE => e
       if retries < @max_retries
         retries += 1
