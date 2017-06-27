@@ -10,7 +10,7 @@ class Fluent::LogentriesOutput < Fluent::BufferedOutput
 
   config_param :use_ssl,        :bool,    :default => true
   config_param :use_json,       :bool,    :default => false
-  config_param :port,           :integer, :default => 20000
+  config_param :port,           :integer, :default => 443
   config_param :protocol,       :string,  :default => 'tcp'
   config_param :config_path,    :string
   config_param :max_retries,    :integer, :default => 3
@@ -18,7 +18,7 @@ class Fluent::LogentriesOutput < Fluent::BufferedOutput
   config_param :tag_error_log,  :string,  :default => 'logs-error'
   config_param :default_token,  :string,  :default => nil
 
-  SSL_HOST    = "api.logentries.com"
+  SSL_HOST    = "data.logentries.com"
   NO_SSL_HOST = "data.logentries.com"
 
   def configure(conf)
