@@ -8,51 +8,60 @@ class Fluent::LogentriesOutput < Fluent::BufferedOutput
   # and identifies the plugin in the configuration file.
   Fluent::Plugin.register_output('logentries', self)
 
-  config_param :use_ssl,        :bool,    :default => true
-  config_param :use_json,       :bool,    :default => false
-  config_param :port,           :integer, :default => 443
-  config_param :protocol,       :string,  :default => 'tcp'
-  config_param :config_path,    :string
-  config_param :max_retries,    :integer, :default => 3
-  config_param :tag_access_log, :string,  :default => 'logs-access'
-  config_param :tag_error_log,  :string,  :default => 'logs-error'
-  config_param :default_token,  :string,  :default => nil
+  config_param :cache_size,          :integer, default: 1000
+  config_param :cache_ttl,           :integer, default: 60 * 60
+  config_param :use_json,            :bool,    :default => false
+  config_param :port,                :integer, :default => 443
+  config_param :protocol,            :string,  :default => 'tcp'
+  config_param :api_token            :string
+  config_param :logset_name_field    :string
+  config_param :log_name_field       :string
+  config_param :max_retries,         :integer, :default => 3
 
   SSL_HOST    = "data.logentries.com"
-  NO_SSL_HOST = "data.logentries.com"
 
   def configure(conf)
     super
+    require 'rest-client'
+    require 'lru_redux'
 
+    @cache_ttl = :none if @cache_ttl < 0
+    @cache = LruRedux::TTL::ThreadSafeCache.new(@cache_size, @cache_ttl)
     @tokens    = nil
     @last_edit = Time.at(0)
   end
 
   def start
     super
+    populate_logsets()
   end
 
   def shutdown
     super
   end
 
+  def get_request_headers
+    {'x-api-key': @api_token,'Content-Type': 'application/json'}
+  end
+
+  def populate_logsets
+    url = 'https://rest.logentries.com/management/logsets'
+
+    response = RestClient.get(url, headers=get_request_headers())
+    logsets = JSON.parse(response)["logsets"]
+
+    logsets.each do |logset|
+      @cache[logset["name"]] = get_logset(logset)
+    end
+  end
+
   def client
-    @_socket ||= if @use_ssl
+    @_socket ||=
       context    = OpenSSL::SSL::SSLContext.new
-      socket     = TCPSocket.new SSL_HOST, @port
+      socket     = TCPSocket.new SSL_HOST, 443
       ssl_client = OpenSSL::SSL::SSLSocket.new socket, context
 
       ssl_client.connect
-    else
-      if @protocol == 'tcp'
-        TCPSocket.new NO_SSL_HOST, @port
-      else
-        udp_client = UDPSocket.new
-        udp_client.connect NO_SSL_HOST, @port
-
-        udp_client
-      end
-    end
   end
 
   # This method is called when an event reaches Fluentd.
@@ -60,56 +69,112 @@ class Fluent::LogentriesOutput < Fluent::BufferedOutput
     return [tag, record].to_msgpack
   end
 
-  # Parse an YML file and generate a list of tokens.
-  # It will only re-generate the list on changes.
-  def generate_tokens_list
+  def get_log(raw_log)
+    href = raw_log["links"].find{|link| link["rel"] == "Self"}["href"]
+    response = RestClient.get(href, headers=get_request_headers())
+    body = JSON.parse(response)["log"]
+    token = body["tokens"].first
+    {"token": token, "id": body["id"]}
+  end
+
+  def get_logset(raw_logset)
+    logset = {}
+    logset["id"]   = raw_logset["id"]
+    logset["name"] = raw_logset["name"]
+
+    raw_logset["logs_info"].each do |log|
+      logset["logs"][log["name"]] = get_log(log)
+    end
+    logset
+  end
+
+  def create_logset(name, try=0)
+    logset = {}
+    data = { "logset":
+               {
+                 "name": name
+               }
+           }
+    url = 'https://rest.logentries.com/management/logsets'
+
     begin
-      edit_time = File.mtime(@config_path)
-
-      if edit_time > @last_edit
-        @tokens    = YAML::load_file(@config_path)
-        @last_edit = edit_time
-
-        log.info "Token(s) list updated."
+      response = RestClient.post(url, data.to_json, headers=get_request_headers())
+      body = JSON.parse(response)["logset"]
+      logset["id"]   = body["id"]
+      logset["name"] = body["name"]
+      logset
+    rescue RestClient::BadRequest
+      sleep 0.1
+      populate_logsets()
+      if @cache.keys().include? name
+        return @cache[name]
+      elsif try > 3
+        raise 'Unable to create logset'
+      else
+        return create_logset(name, try=try+1)
       end
-    rescue Exception => e
-      log.warn "Could not load configuration. #{e.message}"
+    end
+  end
+
+  def create_log(logset, name, try=0)
+    log = {}
+    data = { "log": {
+               "name": name,
+               "source_type": "token",
+               "logsets_info": [
+                  {
+                    "id": logset["id"]
+                  }
+               ]
+              }
+            }
+    url = 'https://rest.logentries.com/management/logs'
+
+    begin
+      response = RestClient.post(url, data.to_json, headers=get_request_headers())
+      body = JSON.parse(response)["log"]
+      token = body["tokens"].first
+      logset["logs"][name] = {"token": token, "id": body["id"]}
+      logset["logs"][name]
+    rescue RestClient::BadRequest
+      sleep 0.1
+      populate_logsets()
+      if log_token_exists?(@cache[logset["name"]], name)
+        return @cache[logset["name"]][name]
+      elsif try > 3
+        raise 'Unable to create logset'
+      else
+        return create_log(logset, name, try=try+1)
+      end
+    end
+  end
+
+  def log_token_exists?(logset, log_name)
+    logset["logs"].keys().include? log_name
+  end
+
+  def get_or_create_log_token(logset, log_name)
+    if log_token_exists?(logset, log_name)
+      return logset["logs"][log_name]["token"]
+    else
+      return create_log(logset, log_name)["token"]
     end
   end
 
   # Returns the correct token to use for a given tag / records
   def get_token(tag, record)
-    app_name = record["app_name"] || ''
+    if ([@logset_name_field, @log_name_field] - record.keys()).empty?
+      return nil
+    else
+      log_name = record[@log_name_field]
+      logset   = @cache[record[@logset_name_field]]
 
-    # Config Structure
-    # -----------------------
-    # app-name:
-    #   app: TOKEN
-    #   access: TOKEN (optional)
-    #   error: TOKEN  (optional)
-    @tokens.each do |key, value|
-      if app_name == key || tag.index(key) != nil
-        default = value['app']
-
-        case tag
-          when @tag_access_log
-            return value['access'] || default
-          when @tag_error_log
-            return value['error']  || default
-
-          else
-            return default
-        end
-      end
+      return get_or_create_log_token(logset, log_name)
     end
-
-    return default_token
   end
 
   # NOTE! This method is called by internal thread, not Fluentd's main thread. So IO wait doesn't affect other plugins.
   def write(chunk)
-    generate_tokens_list()
-    return unless @tokens.is_a? Hash
 
     chunk.msgpack_each do |tag, record|
       next unless record.is_a? Hash
