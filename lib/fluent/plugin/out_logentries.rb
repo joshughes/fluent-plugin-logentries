@@ -2,20 +2,19 @@ require 'socket'
 require 'yaml'
 require 'openssl'
 
-class Fluent::LogentriesOutput < Fluent::BufferedOutput
+class Fluent::LogentriesDynamicOutput < Fluent::BufferedOutput
   class ConnectionFailure < StandardError; end
   # First, register the plugin. NAME is the name of this plugin
   # and identifies the plugin in the configuration file.
-  Fluent::Plugin.register_output('logentries', self)
+  Fluent::Plugin.register_output('logentries_dynamic', self)
 
   config_param :cache_size,          :integer, default: 1000
   config_param :cache_ttl,           :integer, default: 60 * 60
-  config_param :use_json,            :bool,    :default => false
-  config_param :port,                :integer, :default => 443
-  config_param :protocol,            :string,  :default => 'tcp'
-  config_param :api_token            :string
-  config_param :logset_name_field    :string
-  config_param :log_name_field       :string
+  config_param :use_json,            :bool,    :default => true
+  config_param :enable_ssl,          :bool,    :default => true
+  config_param :api_token,           :string
+  config_param :logset_name_field,   :string
+  config_param :log_name_field,      :string
   config_param :max_retries,         :integer, :default => 3
 
   SSL_HOST    = "data.logentries.com"
@@ -57,11 +56,15 @@ class Fluent::LogentriesOutput < Fluent::BufferedOutput
 
   def client
     @_socket ||=
-      context    = OpenSSL::SSL::SSLContext.new
-      socket     = TCPSocket.new SSL_HOST, 443
-      ssl_client = OpenSSL::SSL::SSLSocket.new socket, context
 
-      ssl_client.connect
+      socket     = TCPSocket.new SSL_HOST, 443
+      if @enable_ssl
+        context    = OpenSSL::SSL::SSLContext.new
+        ssl_client = OpenSSL::SSL::SSLSocket.new socket, context
+        return ssl_client.connect
+      end
+
+      socket
   end
 
   # This method is called when an event reaches Fluentd.
@@ -70,15 +73,19 @@ class Fluent::LogentriesOutput < Fluent::BufferedOutput
   end
 
   def get_log(raw_log)
+    log.info "Getting log #{raw_log['name']}"
     href = raw_log["links"].find{|link| link["rel"] == "Self"}["href"]
+
     response = RestClient.get(href, headers=get_request_headers())
     body = JSON.parse(response)["log"]
+
     token = body["tokens"].first
-    {"token": token, "id": body["id"]}
+    {"token"=> token, "id"=> body["id"]}
   end
 
   def get_logset(raw_logset)
     logset = {}
+    logset["logs"] = {}
     logset["id"]   = raw_logset["id"]
     logset["name"] = raw_logset["name"]
 
@@ -88,7 +95,10 @@ class Fluent::LogentriesOutput < Fluent::BufferedOutput
     logset
   end
 
-  def create_logset(name, try=0)
+
+  def create_logset(name)
+    return @cache[name] if @cache.key? name
+
     logset = {}
     data = { "logset":
                {
@@ -102,50 +112,57 @@ class Fluent::LogentriesOutput < Fluent::BufferedOutput
       body = JSON.parse(response)["logset"]
       logset["id"]   = body["id"]
       logset["name"] = body["name"]
+      logset["logs"] = {}
       logset
     rescue RestClient::BadRequest
-      sleep 0.1
       populate_logsets()
-      if @cache.keys().include? name
+      if @cache.key? name
         return @cache[name]
-      elsif try > 3
-        raise 'Unable to create logset'
       else
-        return create_logset(name, try=try+1)
+        raise 'Unable to create logset'
       end
     end
   end
 
-  def create_log(logset, name, try=0)
-    log = {}
-    data = { "log": {
-               "name": name,
-               "source_type": "token",
-               "logsets_info": [
-                  {
-                    "id": logset["id"]
-                  }
-               ]
-              }
-            }
-    url = 'https://rest.logentries.com/management/logs'
+  def log_race_created?(logset, name)
+    sleep rand(0..0.1)
+    url = "https://rest.logentries.com/management/logsets/#{logset['id']}"
+    response = RestClient.get(url, headers=get_request_headers())
+    body = JSON.parse(response)["logset"]
 
-    begin
-      response = RestClient.post(url, data.to_json, headers=get_request_headers())
-      body = JSON.parse(response)["log"]
-      token = body["tokens"].first
-      logset["logs"][name] = {"token": token, "id": body["id"]}
-      logset["logs"][name]
-    rescue RestClient::BadRequest
-      sleep 0.1
+    body["logs_info"].map{ |log| log["name"]}.include? name
+  end
+
+  def create_log(logset, name)
+    if log_token_exists?(logset, name)
+      return logset["logs"][name]
+    elsif log_race_created?(logset, name)
       populate_logsets()
       if log_token_exists?(@cache[logset["name"]], name)
-        return @cache[logset["name"]][name]
-      elsif try > 3
-        raise 'Unable to create logset'
+        return @cache[logset["name"]]["logs"][name]
       else
-        return create_log(logset, name, try=try+1)
+        raise 'Unable to create log'
       end
+    else
+      log = {}
+      data = { "log": {
+                 "name": name,
+                 "source_type": "token",
+                 "logsets_info": [
+                    {
+                      "id": logset["id"]
+                    }
+                 ]
+                }
+              }
+      url = 'https://rest.logentries.com/management/logs'
+      response = RestClient.post(url, data.to_json, headers=get_request_headers())
+
+      body = JSON.parse(response)["log"]
+      token = body["tokens"].first
+
+      logset["logs"][name] = {"token"=> token, "id"=> body["id"]}
+      logset["logs"][name]
     end
   end
 
@@ -155,27 +172,32 @@ class Fluent::LogentriesOutput < Fluent::BufferedOutput
 
   def get_or_create_log_token(logset, log_name)
     if log_token_exists?(logset, log_name)
-      return logset["logs"][log_name]["token"]
+      return logset["logs"][log_name]
     else
-      return create_log(logset, log_name)["token"]
+      return create_log(logset, log_name)
     end
   end
 
   # Returns the correct token to use for a given tag / records
   def get_token(tag, record)
     if ([@logset_name_field, @log_name_field] - record.keys()).empty?
-      return nil
-    else
       log_name = record[@log_name_field]
-      logset   = @cache[record[@logset_name_field]]
+      log_set_name = record[@logset_name_field]
+      if @cache.key? log_set_name
+        logset = @cache[log_set_name]
+      else
+        logset = create_logset(log_set_name)
+        @cache[log_set_name] = logset
+      end
 
-      return get_or_create_log_token(logset, log_name)
+      return get_or_create_log_token(logset, log_name)["token"]
+    else
+      return nil
     end
   end
 
   # NOTE! This method is called by internal thread, not Fluentd's main thread. So IO wait doesn't affect other plugins.
   def write(chunk)
-
     chunk.msgpack_each do |tag, record|
       next unless record.is_a? Hash
       next unless @use_json or record.has_key? "message"

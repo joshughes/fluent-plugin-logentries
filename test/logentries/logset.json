@@ -1,0 +1,25 @@
+{
+	"logset": {
+		"user_data": {},
+		"logs_info": [{
+				"id": "4c1e08f2-0398-48a5-9325-ac190e2f79e8",
+				"links": [{
+					"href": "https://rest.logentries.com/management/logs/4c1e08f2-0398-48a5-9325-ac190e2f79e8",
+					"rel": "Self"
+				}],
+				"name": "test1"
+			},
+			{
+				"id": "f15ad4cf-fe7d-4b7a-86b0-924997c1d8be",
+				"links": [{
+					"href": "https://rest.logentries.com/management/logs/f15ad4cf-fe7d-4b7a-86b0-924997c1d8be",
+					"rel": "Self"
+				}],
+				"name": "test2"
+			}
+		],
+		"description": null,
+		"id": "814241d4-a14a-4c98-b059-b30978baf951",
+		"name": "TestLogSets"
+	}
+}

@@ -1,0 +1,28 @@
+{
+    "log": {
+        "logsets_info": [
+            {
+                "id": "d25737e8-7135-4b48-b0f8-4b4b5b60b358",
+                "links": [
+                    {
+                        "href": "https://rest.logentries.com/management/logsets/814241d4-a14a-4c98-b059-b30978baf951",
+                        "rel": "Self"
+                    }
+                ],
+                "name": "TestLogSets"
+            }
+        ],
+        "name": "test2",
+        "user_data": {
+            "le_agent_filename": "",
+            "le_agent_follow": "false"
+        },
+        "tokens": [
+            "70347838-87d8-43f7-82cc-fb6f63623893"
+        ],
+        "source_type": "token",
+        "token_seed": null,
+        "structures": [],
+        "id": "f15ad4cf-fe7d-4b7a-86b0-924997c1d8be"
+    }
+}
