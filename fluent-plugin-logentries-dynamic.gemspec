@@ -8,7 +8,7 @@ Gem::Specification.new do |spec|
   spec.authors       = ["Joe Hughes"]
   spec.email         = ["dev@joehughes.info"]
   spec.summary       = "Logentries output plugin for Fluent event collector the dynamically creates Logs and Logsets"
-  spec.homepage      = "https://github.com/joshughes/fluent-plugin-logentries"
+  spec.homepage      = "https://github.com/joshughes/fluent-plugin-logentries-dynamic"
   spec.license       = "MIT"
 
   spec.files         = `git ls-files -z`.split("\x0")
