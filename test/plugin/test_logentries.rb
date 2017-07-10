@@ -13,7 +13,7 @@ class LogentriesOutputTest < Test::Unit::TestCase
     cache_size 2000
     cache_ttl 300
     api_token foobar
-    enable_ssl false
+    use_ssl false
     logset_name_field namespace
     log_name_field container_name
   ]

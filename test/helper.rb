@@ -41,7 +41,7 @@ else
   $log = nulllogger
 end
 
-require 'fluent/plugin/out_logentries'
+require 'fluent/plugin/out_logentries_dynamic'
 
 require 'webmock/test_unit'
 require 'minitest/mock'

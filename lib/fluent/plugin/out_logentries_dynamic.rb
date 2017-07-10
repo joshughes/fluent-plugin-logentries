@@ -11,7 +11,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::BufferedOutput
   config_param :cache_size,          :integer, default: 1000
   config_param :cache_ttl,           :integer, default: 60 * 60
   config_param :use_json,            :bool,    :default => true
-  config_param :enable_ssl,          :bool,    :default => true
+  config_param :use_ssl,             :bool,    :default => true
   config_param :api_token,           :string
   config_param :logset_name_field,   :string
   config_param :log_name_field,      :string
@@ -55,16 +55,17 @@ class Fluent::LogentriesDynamicOutput < Fluent::BufferedOutput
   end
 
   def client
-    @_socket ||=
 
+    @_socket ||= if @use_ssl
+      context    = OpenSSL::SSL::SSLContext.new
       socket     = TCPSocket.new SSL_HOST, 443
-      if @enable_ssl
-        context    = OpenSSL::SSL::SSLContext.new
-        ssl_client = OpenSSL::SSL::SSLSocket.new socket, context
-        return ssl_client.connect
-      end
+      ssl_client = OpenSSL::SSL::SSLSocket.new socket, context
 
-      socket
+      ssl_client.connect
+    else
+      TCPSocket.new SSL_HOST, 443
+    end
+
   end
 
   # This method is called when an event reaches Fluentd.
