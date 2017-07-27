@@ -2,7 +2,7 @@ require 'socket'
 require 'yaml'
 require 'openssl'
 
-class Fluent::LogentriesDynamicOutput < Fluent::BufferedOutput
+class Fluent::LogentriesDynamicOutput < Fluent::Output
   class ConnectionFailure < StandardError; end
   # First, register the plugin. NAME is the name of this plugin
   # and identifies the plugin in the configuration file.
@@ -28,11 +28,11 @@ class Fluent::LogentriesDynamicOutput < Fluent::BufferedOutput
     @cache = LruRedux::TTL::ThreadSafeCache.new(@cache_size, @cache_ttl)
     @tokens    = nil
     @last_edit = Time.at(0)
+    populate_logsets()
   end
 
   def start
     super
-    populate_logsets()
   end
 
   def shutdown
@@ -52,20 +52,6 @@ class Fluent::LogentriesDynamicOutput < Fluent::BufferedOutput
     logsets.each do |logset|
       @cache[logset["name"]] = get_logset(logset)
     end
-  end
-
-  def client
-
-    @_socket ||= if @use_ssl
-      context    = OpenSSL::SSL::SSLContext.new
-      socket     = TCPSocket.new SSL_HOST, 443
-      ssl_client = OpenSSL::SSL::SSLSocket.new socket, context
-
-      ssl_client.connect
-    else
-      TCPSocket.new SSL_HOST, 443
-    end
-
   end
 
   # This method is called when an event reaches Fluentd.
@@ -168,6 +154,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::BufferedOutput
   end
 
   def log_token_exists?(logset, log_name)
+    return false unless logset && log_name
     logset["logs"].keys().include? log_name
   end
 
@@ -181,9 +168,9 @@ class Fluent::LogentriesDynamicOutput < Fluent::BufferedOutput
 
   # Returns the correct token to use for a given tag / records
   def get_token(tag, record)
-    if ([@logset_name_field, @log_name_field] - record.keys()).empty?
-      log_name = record[@log_name_field]
-      log_set_name = record[@logset_name_field]
+    if ([@logset_name_field.to_sym, @log_name_field.to_sym] - record.keys()).empty?
+      log_name = record[@log_name_field.to_sym]
+      log_set_name = record[@logset_name_field.to_sym]
       if @cache.key? log_set_name
         logset = @cache[log_set_name]
       else
@@ -198,8 +185,8 @@ class Fluent::LogentriesDynamicOutput < Fluent::BufferedOutput
   end
 
   # NOTE! This method is called by internal thread, not Fluentd's main thread. So IO wait doesn't affect other plugins.
-  def write(chunk)
-    chunk.msgpack_each do |tag, record|
+  def process(tag, es)
+    es.each do |time, record|
       next unless record.is_a? Hash
       next unless @use_json or record.has_key? "message"
 
@@ -214,25 +201,12 @@ class Fluent::LogentriesDynamicOutput < Fluent::BufferedOutput
 
   def send_logentries(token, data)
     retries = 0
-    begin
-      log.debug "Writing data to logentries socket!!!!"
-      client.write("#{token} #{data} \n")
-      log.debug "Wrote data to logentries socket!!!!"
-    rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, Errno::EPIPE => e
-      if retries < @max_retries
-        retries += 1
-        @_socket = nil
-        log.warn "Could not push logs to Logentries, resetting connection and trying again. #{e.message}"
-        sleep 5**retries
-        retry
-      end
-      raise ConnectionFailure, "Could not push logs to Logentries after #{retries} retries. #{e.message}"
-    rescue Errno::EMSGSIZE
-      str_length = data.length
-      send_logentries(token, data[0..str_length/2])
-      send_logentries(token, data[(str_length/2)+1..str_length])
 
-      log.warn "Message Too Long, re-sending it in two part..."
+    url = "https://webhook.logentries.com/noformat/logs/#{token}"
+    response = RestClient.post(url, data, headers={'Content-Type': 'application/json'})
+    if response.code != 204
+      puts "Got unexpected response code #{response.code}"
+      puts "#{response.body}"
     end
   end
 

@@ -3,7 +3,7 @@ SimpleCov.start
 
 require 'rubygems'
 require 'bundler'
-
+#require 'byebug'
 begin
   Bundler.setup(:default, :development)
 rescue Bundler::BundlerError => e
@@ -12,7 +12,6 @@ rescue Bundler::BundlerError => e
   exit e.status_code
 end
 require 'test/unit'
-require 'pry'
 
 
 require "simplecov"
