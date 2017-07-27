@@ -121,6 +121,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
   end
 
   def create_log(logset, name)
+    puts "Creating log #{name} in #{logset}"
     if log_token_exists?(logset, name)
       return logset["logs"][name]
     elsif log_race_created?(logset, name)
@@ -168,6 +169,8 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
 
   # Returns the correct token to use for a given tag / records
   def get_token(tag, record)
+    puts "Looking for #{@logset_name_field.to_sym}  and #{@log_name_field.to_sym}"
+    puts "getting record keys #{record.keys()}"
     if ([@logset_name_field.to_sym, @log_name_field.to_sym] - record.keys()).empty?
       log_name = record[@log_name_field.to_sym]
       log_set_name = record[@logset_name_field.to_sym]
@@ -191,6 +194,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
       next unless @use_json or record.has_key? "message"
 
       token = get_token(tag, record)
+      puts "Failed token" if token.nil?
       next if token.nil?
 
       # Clean up the string to avoid blank line in logentries
