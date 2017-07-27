@@ -182,7 +182,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
     if ([@logset_name_field, @log_name_field] - conv_record.keys()).empty?
       log_name = conv_record[@log_name_field]
       log_set_name = conv_record[@logset_name_field]
-      log_set_name.gsub!(@log_set_name_remove,'') if @log_set_name_remove
+      log_name.gsub!(@log_set_name_remove,'') if @log_set_name_remove
       if @cache.key? log_set_name
         logset = @cache[log_set_name]
       else
