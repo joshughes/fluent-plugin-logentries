@@ -167,13 +167,22 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
     end
   end
 
+  def transform_keys(record)
+    result = {}
+    record.keys.each do |key|
+      result[key.to_s] = record[key]
+    end
+    result
+  end
+
   # Returns the correct token to use for a given tag / records
   def get_token(tag, record)
-    puts "Looking for #{@logset_name_field.to_sym}  and #{@log_name_field.to_sym}"
-    puts "getting record keys #{record.keys()}"
-    if ([@logset_name_field.to_sym, @log_name_field.to_sym] - record.keys()).empty?
-      log_name = record[@log_name_field.to_sym]
-      log_set_name = record[@logset_name_field.to_sym]
+    conv_record = transform_keys(record)
+    puts "Looking for #{@logset_name_field}  and #{@log_name_field}"
+    puts "getting record keys #{conv_record.keys()}"
+    if ([@logset_name_field, @log_name_field] - conv_record.keys()).empty?
+      log_name = conv_record[@log_name_field]
+      log_set_name = conv_record[@logset_name_field]
       if @cache.key? log_set_name
         logset = @cache[log_set_name]
       else
