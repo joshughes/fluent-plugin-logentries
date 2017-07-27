@@ -16,6 +16,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
   config_param :logset_name_field,   :string
   config_param :log_name_field,      :string
   config_param :max_retries,         :integer, :default => 3
+  config_param :log_set_name_remove, :string, :default => nil
 
   SSL_HOST    = "data.logentries.com"
 
@@ -178,11 +179,10 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
   # Returns the correct token to use for a given tag / records
   def get_token(tag, record)
     conv_record = transform_keys(record)
-    puts "Looking for #{@logset_name_field}  and #{@log_name_field}"
-    puts "getting record keys #{conv_record.keys()}"
     if ([@logset_name_field, @log_name_field] - conv_record.keys()).empty?
       log_name = conv_record[@log_name_field]
       log_set_name = conv_record[@logset_name_field]
+      log_set_name.gsub!(@log_set_name_remove,'') if @log_set_name_remove
       if @cache.key? log_set_name
         logset = @cache[log_set_name]
       else
