@@ -12,7 +12,7 @@ rescue Bundler::BundlerError => e
   exit e.status_code
 end
 require 'test/unit'
-
+require 'byebug'
 
 require "simplecov"
 require "codeclimate-test-reporter"

@@ -16,6 +16,7 @@ class LogentriesOutputTest < Test::Unit::TestCase
     use_ssl false
     logset_name_field namespace
     log_name_field container_name
+    log_set_name_remove remove-me-
   ]
 
   def stub_log_create
@@ -73,6 +74,23 @@ class LogentriesOutputTest < Test::Unit::TestCase
     time = Time.parse("2011-01-02 13:14:15 UTC").to_i
 
     d1.emit({"namespace": "TestLogSets", "container_name": "test1"}, time)
+
+    stubs.map{|stub| assert_requested(stub)}
+    assert_requested(log_set_stub, times: 2)
+  end
+
+  def test_remove_part_of_tag
+    stubs = []
+    stubs << stub_logsets()
+    stubs << stub_log("4c1e08f2-0398-48a5-9325-ac190e2f79e8")
+    stubs << stub_log_post("70347838-87d8-43f7-82cc-fb6f63623893")
+
+    log_set_stub = stub_logset("814241d4-a14a-4c98-b059-b30978baf951")
+
+    d1 = create_driver(CONFIG)
+    time = Time.parse("2011-01-02 13:14:15 UTC").to_i
+
+    d1.emit({"namespace": "TestLogSets", "container_name": "remove-me-test1"}, time)
 
     stubs.map{|stub| assert_requested(stub)}
     assert_requested(log_set_stub, times: 2)
