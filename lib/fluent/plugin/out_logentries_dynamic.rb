@@ -51,7 +51,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
     logsets = JSON.parse(response)["logsets"]
 
     logsets.each do |logset|
-      @cache[logset["name"]] = get_logset(logset)
+      @cache[logset["name"]] = get_logset(logset) unless @cache.key?(logset["name"])
     end
   end
 
@@ -60,15 +60,24 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
     return [tag, record].to_msgpack
   end
 
-  def get_log(raw_log)
-    log.info "Getting log #{raw_log['name']}"
-    href = raw_log["links"].find{|link| link["rel"] == "Self"}["href"]
-
-    response = RestClient.get(href, headers=get_request_headers())
+  def get_log_by_id(log_id)
+    url = "https://rest.logentries.com/management/logs/#{log_id}"
+    response = RestClient.get(url, headers=get_request_headers())
     body = JSON.parse(response)["log"]
+  end
 
-    token = body["tokens"].first
-    {"token"=> token, "id"=> body["id"]}
+  def get_log_by_name(logset_id, log_name)
+    url = "https://rest.logentries.com/management/logsets/#{logset_id}"
+    response = RestClient.get(url, headers=get_request_headers())
+    body = JSON.parse(response)["logset"]
+
+    log_id = body["logs_info"].select{ |log| log["name"] == log_name}.first["id"]
+    get_log_by_id(log_id)
+  end
+
+  def get_log_token(log_id)
+    raw_log = get_raw_log(log_id)
+    raw_log["tokens"].first
   end
 
   def get_logset(raw_logset)
@@ -76,9 +85,8 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
     logset["logs"] = {}
     logset["id"]   = raw_logset["id"]
     logset["name"] = raw_logset["name"]
-
     raw_logset["logs_info"].each do |log|
-      logset["logs"][log["name"]] = get_log(log)
+      logset["logs"][log["name"]] = { "id"=> log["id"]}
     end
     logset
   end
@@ -121,17 +129,18 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
     body["logs_info"].map{ |log| log["name"]}.include? name
   end
 
+  def add_log_to_logset(logset, name)
+    log = get_log_by_name(logset["id"], name)
+    token = log["tokens"].first
+
+    logset["logs"][name] = {"token"=> token, "id"=> log["id"]}
+    logset["logs"][name]
+  end
+
   def create_log(logset, name)
-    puts "Creating log #{name} in #{logset}"
-    if log_token_exists?(logset, name)
-      return logset["logs"][name]
-    elsif log_race_created?(logset, name)
-      populate_logsets()
-      if log_token_exists?(@cache[logset["name"]], name)
-        return @cache[logset["name"]]["logs"][name]
-      else
-        raise 'Unable to create log'
-      end
+    puts "Creating or finding log #{name} in #{logset}"
+    if log_race_created?(logset, name)
+      return add_log_to_logset(logset, name)
     else
       log = {}
       data = { "log": {
@@ -157,7 +166,11 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
 
   def log_token_exists?(logset, log_name)
     return false unless logset && log_name
-    logset["logs"].keys().include? log_name
+    if logset["logs"].keys().include? log_name
+      logset["logs"][log_name].keys().include? "token"
+    else
+      return false
+    end
   end
 
   def get_or_create_log_token(logset, log_name)
@@ -182,7 +195,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
     if ([@logset_name_field, @log_name_field] - conv_record.keys()).empty?
       log_name = conv_record[@log_name_field]
       log_set_name = conv_record[@logset_name_field]
-      log_name.gsub!(@log_set_name_remove,'') if @log_set_name_remove
+      log_set_name.gsub!(@log_set_name_remove,'') if @log_set_name_remove
       if @cache.key? log_set_name
         logset = @cache[log_set_name]
       else

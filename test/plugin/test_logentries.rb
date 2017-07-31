@@ -62,51 +62,51 @@ class LogentriesOutputTest < Test::Unit::TestCase
   end
 
   def test_happy_path
-    stub_logsets()
-    stub_logset("TestLogSets")
-    stub_log("4c1e08f2-0398-48a5-9325-ac190e2f79e8")
-    stub_log("f15ad4cf-fe7d-4b7a-86b0-924997c1d8be")
-    stub_log_post("70347838-87d8-43f7-82cc-fb6f63623893")
+    stubs = []
+    stubs << stub_logsets()
+    stubs << stub_log("4c1e08f2-0398-48a5-9325-ac190e2f79e8")
+    stubs << stub_log_post("70347838-87d8-43f7-82cc-fb6f63623893")
+
+    log_set_stub = stub_logset("814241d4-a14a-4c98-b059-b30978baf951")
+
     d1 = create_driver(CONFIG)
     time = Time.parse("2011-01-02 13:14:15 UTC").to_i
 
-    #d1.emit({"a"=>2}, time)
-    #socket = Minitest::Mock.new
-    #socket.expect :write, nil, ["70347838-87d8-43f7-82cc-fb6f63623893 {\"namespace\":\"TestLogSets\",\"container_name\":\"test1\"} \n"]
-    #TCPSocket.stub :new, socket do
     d1.emit({"namespace": "TestLogSets", "container_name": "test1"}, time)
-    #end
 
-    #socket.verify
-
+    stubs.map{|stub| assert_requested(stub)}
+    assert_requested(log_set_stub, times: 2)
   end
 
   def test_create_log
-    stub_logsets()
-    stub_log_create()
-    stub_log("4c1e08f2-0398-48a5-9325-ac190e2f79e8")
-    stub_log("f15ad4cf-fe7d-4b7a-86b0-924997c1d8be")
-    stub_logset("814241d4-a14a-4c98-b059-b30978baf951")
-    stub_log_post("new-log-token")
+    stubs = []
+    stubs << stub_logsets()
+    stubs << stub_log_create()
+    stubs << stub_log_post("new-log-token")
+
+    stubs << stub_logset("814241d4-a14a-4c98-b059-b30978baf951")
 
     d1 = create_driver(CONFIG)
     time = Time.parse("2011-01-02 13:14:15 UTC").to_i
     d1.emit({"namespace": "TestLogSets", "container_name": "new_log"}, time)
+
+    stubs.map{|stub| assert_requested(stub)}
   end
 
   def test_create_log_and_logset
-    stub_logsets()
-    stub_log_create()
-    stub_logset("TestLogSets")
-    stub_logset_create("new-log-set")
-    stub_log("4c1e08f2-0398-48a5-9325-ac190e2f79e8")
-    stub_log("f15ad4cf-fe7d-4b7a-86b0-924997c1d8be")
-    stub_logset("new-log-set")
-    stub_log_post("new-log-token")
+    stubs = []
+    stubs << stub_logsets()
+    stubs << stub_log_create()
+    stubs << stub_logset_create("new-log-set")
+
+    stubs << stub_logset("new-log-set")
+    stubs << stub_log_post("new-log-token")
 
     d1 = create_driver(CONFIG)
     time = Time.parse("2011-01-02 13:14:15 UTC").to_i
     d1.emit({"namespace": "new-log-set", "container_name": "new_log"}, time)
+
+    stubs.map{|stub| assert_requested(stub)}
   end
 
 end
