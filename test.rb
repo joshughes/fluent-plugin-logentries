@@ -1,6 +1,7 @@
 require 'rest-client'
 require 'json'
 require 'lru_redux'
+require 'byebug'
 
 @cache = LruRedux::TTL::ThreadSafeCache.new(1000, 60 * 60)
 
@@ -31,12 +32,13 @@ def get_log_by_id(log_id)
 end
 
 def get_log_by_name(logset_id, log_name)
-  url = "https://rest.logentries.com/management/logsets/#{logset_id}"
+  url = "https://rest.logentries.com/management/logs"
   response = RestClient.get(url, headers=get_request_headers())
-  body = JSON.parse(response)["logset"]
+  body = JSON.parse(response)["logs"]
 
-  log_id = body["logs_info"].select{ |log| log["name"] == log_name}.first["id"]
-  get_log_by_id(log_id)
+  logset_defined = body.select{ |log| !log["logsets_info"].empty?}
+  logset_logs = logset_defined.select{ |log| log["logsets_info"].first["id"] == logset_id }
+  logset_logs.select{ |log| log["name"] == log_name }.first
 end
 
 def get_log_token(log_id)
@@ -84,13 +86,24 @@ def create_logset(name)
   end
 end
 
-def log_race_created?(logset, name)
+def log_race_created?(logset_id, name)
   sleep rand(0..0.1)
-  url = "https://rest.logentries.com/management/logsets/#{logset['id']}"
-  response = RestClient.get(url, headers=get_request_headers())
-  body = JSON.parse(response)["logset"]
 
-  body["logs_info"].map{ |log| log["name"]}.include? name
+  url = "https://rest.logentries.com/management/logs"
+  response = RestClient.get(url, headers=get_request_headers())
+  body = JSON.parse(response)["logs"]
+
+  logset_defined = body.select{ |log| !log["logsets_info"].empty?}
+  logset_logs = logset_defined.select{ |log| log["logsets_info"].first["id"] == logset_id }
+  names = logset_logs.map{ |log| log["name"] }
+  names.include? name
+
+
+  # url = "https://rest.logentries.com/management/logsets/#{logset['id']}"
+  # response = RestClient.get(url, headers=get_request_headers())
+  # body = JSON.parse(response)["logset"]
+  #
+  # body["logs_info"].map{ |log| log["name"]}.include? name}
 end
 
 def add_log_to_logset(logset, name)
@@ -138,6 +151,7 @@ def log_token_exists?(logset, log_name)
 end
 
 def get_or_create_log_token(logset, log_name)
+  byebug
   if log_token_exists?(logset, log_name)
     return logset["logs"][log_name]
   else
@@ -200,15 +214,52 @@ def send_logentries(token, data)
   end
 end
 
+def delete_logs(delete_logs)
+  delete_logs.each do |log|
+    puts "Deleteing log #{log['name']}"
+    deleteurl = "https://rest.logentries.com/management/logs/#{log['id']}"
+    RestClient.delete(deleteurl, headers=get_request_headers())
+  end
+end
+
+
+
+def delete_deplicate_logs()
+  @cache.each do |name, logset|
+    puts name
+    url = "https://rest.logentries.com/management/logsets/#{logset['id']}"
+    response = RestClient.get(url, headers=get_request_headers())
+    body = JSON.parse(response)["logset"]
+
+    logset["logs"].each do |log_name, log|
+      puts "Log Name: #{log_name}"
+      puts log["id"]
+      named_logs = body["logs_info"].select{|raw_log| raw_log["name"] == log_name}
+      delete_logs(named_logs.reject{|raw_log| raw_log["id"] == log["id"]})
+    end
+  end
+  # keep = logsets.pop
+  # puts "Keeping logset #{keep}"
+
+  # logsets.each do |logset|
+  #   puts "Deleting logset #{logset}"
+  #   # deleteurl = "https://rest.logentries.com/management/logsets/#{logset['id']}"
+  #   # RestClient.delete(deleteurl, headers=get_request_headers())
+  # end
+end
+
 puts "Populating logsets"
 populate_logsets()
-demo_logset = @cache["demo"]
-token = get_or_create_log_token(demo_logset, 'am')
-puts "am token is #{token}"
-
-puts("Should be true...: #{log_token_exists?(demo_logset, 'am')}")
-puts("Should be false...: #{log_token_exists?(demo_logset, 'am2')}")
-#foo = get_log_by_name('f8cca229-8325-48b8-aa69-31e717ece7a3','am')
+# demo_logset = @cache["upsheb"]
+# token = get_or_create_log_token(demo_logset, 'map-manager')
+# puts "am token is #{token}"
+#
+# puts("Should be true...: #{log_token_exists?(demo_logset, 'am')}")
+# puts("Should be false...: #{log_token_exists?(demo_logset, 'am2')}")
+#byebug
+delete_deplicate_logs()
+#puts log_race_created?('f24c610a-b3bc-472b-9fc4-17d5ee1f7ffc','am')
+#puts get_log_by_id('f2044512-b362-41e3-b085-ea9d3e321a80')
 #puts foo
 # puts "Creating Logsets"
 # foobar = create_logset('foobar')

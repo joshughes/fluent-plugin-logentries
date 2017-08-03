@@ -67,12 +67,13 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
   end
 
   def get_log_by_name(logset_id, log_name)
-    url = "https://rest.logentries.com/management/logsets/#{logset_id}"
+    url = "https://rest.logentries.com/management/logs"
     response = RestClient.get(url, headers=get_request_headers())
-    body = JSON.parse(response)["logset"]
+    body = JSON.parse(response)["logs"]
 
-    log_id = body["logs_info"].select{ |log| log["name"] == log_name}.first["id"]
-    get_log_by_id(log_id)
+    logset_defined = body.select{ |log| !log["logsets_info"].empty?}
+    logset_logs = logset_defined.select{ |log| log["logsets_info"].first["id"] == logset_id }
+    logset_logs.select{ |log| log["name"] == log_name }.first
   end
 
   def get_log_token(log_id)
@@ -120,13 +121,17 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
     end
   end
 
-  def log_race_created?(logset, name)
+  def log_race_created?(logset_id, name)
     sleep rand(0..0.1)
-    url = "https://rest.logentries.com/management/logsets/#{logset['id']}"
-    response = RestClient.get(url, headers=get_request_headers())
-    body = JSON.parse(response)["logset"]
 
-    body["logs_info"].map{ |log| log["name"]}.include? name
+    url = "https://rest.logentries.com/management/logs"
+    response = RestClient.get(url, headers=get_request_headers())
+    body = JSON.parse(response)["logs"]
+    
+    logset_defined = body.select{ |log| !log["logsets_info"].empty?}
+    logset_logs = logset_defined.select{ |log| log["logsets_info"].first["id"] == logset_id }
+    names = logset_logs.map{ |log| log["name"] }
+    names.include? name
   end
 
   def add_log_to_logset(logset, name)
@@ -139,7 +144,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
 
   def create_log(logset, name)
     puts "Creating or finding log #{name} in #{logset}"
-    if log_race_created?(logset, name)
+    if log_race_created?(logset["id"], name)
       return add_log_to_logset(logset, name)
     else
       log = {}
@@ -196,7 +201,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
       log_name = conv_record[@log_name_field]
       log_set_name = conv_record[@logset_name_field]
       log_name.gsub!(@log_set_name_remove,'') if @log_set_name_remove
-      
+
       if @cache.key? log_set_name
         logset = @cache[log_set_name]
       else
