@@ -51,6 +51,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
     logsets = JSON.parse(response)["logsets"]
 
     logsets.each do |logset|
+      puts "Populating Logset #{logset}"
       @cache[logset["name"]] = get_logset(logset) unless @cache.key?(logset["name"])
     end
   end
@@ -111,7 +112,8 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
       logset["name"] = body["name"]
       logset["logs"] = {}
       logset
-    rescue RestClient::BadRequest
+    rescue RestClient::BadRequest => ex
+      puts "An error of type #{ex.class} happened, message is #{ex.message}"
       populate_logsets()
       if @cache.key? name
         return @cache[name]
