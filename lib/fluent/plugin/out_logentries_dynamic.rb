@@ -95,6 +95,7 @@ class Fluent::LogentriesDynamicOutput < Fluent::Output
 
 
   def create_logset(name)
+    puts "Creating logset #{name}"
     return @cache[name] if @cache.key? name
 
     logset = {}
